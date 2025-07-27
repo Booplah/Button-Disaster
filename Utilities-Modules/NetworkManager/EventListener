@@ -7,7 +7,7 @@
 	-- Constructor
 	function EventListener.new(handlers, trace)
 	local self = setmetatable({}, EventListener)
-	--print("EventListener created by: " .. trace)
+	--print("EventListener created  nby: " .. trace)
 
 	local remotes = {
 		async = rs.Modules.NetworkManager.Asynchronous,
