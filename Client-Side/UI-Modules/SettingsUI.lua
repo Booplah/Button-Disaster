@@ -63,7 +63,7 @@ function SettingsUI:ButtonTemplate_CREATE(labelText: string, onclick: (() -> ())
 		button.MouseButton1Click:Connect(onclick)
 	else
 		button.MouseButton1Click:Connect(function()
-			warn("No onClick handler provided for button:", labelText)
+
 		end)
 	end
 end
@@ -186,10 +186,12 @@ function SettingsUI:Start()
 			--print("Disabled: HideGUI")
 		end
 	)
-
+	
+	ButtonActions.SetupColorVFX()
 	self:ButtonTemplate_CREATE("Change VFX Color", function()
-		print("Changing VFX Color")
+		SharedState.SettingsFrame:WaitForChild("ColorPicker").Visible = true
 	end)
+	
 	self:ButtonTemplate_CREATE("Some other shit", function()
 		print("yeah just some other shit")
 	end)

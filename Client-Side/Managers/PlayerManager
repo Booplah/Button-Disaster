@@ -1,0 +1,10 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ModuleLoader = require(ReplicatedStorage.Modules.Utility.ModuleLoader)
+
+ModuleLoader.ChangeSettings({
+	FOLDER_SEARCH_DEPTH = 1,
+	YIELD_THRESHOLD = 0,
+	VERBOSE_LOADING = false,
+	WAIT_FOR_SERVER = true
+})
+ModuleLoader.Start(ReplicatedStorage.Modules.UI)

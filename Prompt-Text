@@ -1,0 +1,1285 @@
+instead of getting the ItemsData table from client side, shouldn't i put the ItemsData in server side for security reasons and then invoke from the client to get the data through the server
+
+```ClientManager
+-- [Services]
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- [Modules]
+local InventoryUI = require(ReplicatedStorage.Modules.UI.InventoryUI)
+local ShopUI = require(ReplicatedStorage.Modules.UI.ShopUI)
+local SettingsUI = require(ReplicatedStorage.Modules.UI.SettingsUI)
+local SettingsManager = require(ReplicatedStorage.Modules.UI.SettingsUI.SettingsManager)
+local EventHandler = require(ReplicatedStorage.Modules.NetworkManager.EventHandler).new("Client")
+--local ModuleLoader = require(ReplicatedStorage.Modules.Utility.ModuleLoader)
+
+-- [Private Variables]
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local settingsLog = {}
+
+
+local Handlers = {
+	[`UpdateInventory`] = function(inventory)
+		ShopUI:SetInventory(inventory)
+		--print(inventory)
+		InventoryUI:SetInventory(inventory)
+	end,
+	[`UpdateSettingsClient`] = function(Settings)
+		SettingsUI:SetSettings(Settings) -- only updates visuals
+	end,
+}
+
+local EventListener = require(ReplicatedStorage.Modules.NetworkManager.EventListener).new(Handlers, script.Name)
+```
+```ShopUI
+local ShopUI = {}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+-- [Modules]
+local SharedState = require(ReplicatedStorage.Modules.UI.SharedState)
+local ItemsData = require(ReplicatedStorage.Modules.DataTables.ItemsData)
+local GamepassData = require(ReplicatedStorage.Modules.DataTables.GamepassData)
+local EventHandler = require(ReplicatedStorage.Modules.NetworkManager.EventHandler).new("Client")
+local GUIanim = require(ReplicatedStorage.Modules.Utility.GUIanim)
+local ButtonActions = require(ReplicatedStorage.Modules.UI.SharedState.ButtonActions)
+
+-- [Constants]
+local RARITY_COLORS = {
+	Common = SharedState.textGradients.Common,
+	Uncommon = SharedState.textGradients.Uncommon,
+	Rare = SharedState.textGradients.Rare,
+	Legendary = SharedState.textGradients.Legendary,
+	Exotic = SharedState.textGradients.Exotic
+}
+
+local CATEGORY_MAP = {
+	Items = "Item",
+	Pets = "Pet",
+	Trails = "Trail"
+}
+
+-----------------------------
+function ShopUI:Init()
+	self.playerInventory = {Items = {}, Pets = {}, Trails = {}}
+	self.shopFrame = SharedState.shopFrame.Main
+	self.itemFrame = self.shopFrame.Items
+	self.petFrame = self.shopFrame.Pets
+	self.trailFrame = self.shopFrame.Trails
+	self.gamepassFrame = self.shopFrame.Gamepass
+	self.templateFrame = self.shopFrame.TemplatesFrame
+
+	self.singleTemplate = self.templateFrame.Template
+	self.lockedTemplate = self.templateFrame.LockedTemplate
+	self.topGamepass = self.gamepassFrame.TopGamepass
+	self.listGamepass = self.gamepassFrame.ListGamepass
+end
+
+-- [ Inventory ]
+function ShopUI:SetInventory(inventory)
+	self.playerInventory = inventory or {Items = {}, Pets = {}, Trails = {}}
+	self:MarkPurchasedItems()
+end
+
+function ShopUI:GetItemData(itemId)
+	for _, categoryItems in pairs(ItemsData) do
+		if type(categoryItems) == "table" then
+			for _, item in ipairs(categoryItems) do
+				if item.Id == itemId then
+					return item
+				end
+			end
+		end
+	end
+	return nil
+end
+
+function ShopUI:ApplyRarityGradient(object, rarity)
+	if not RARITY_COLORS[rarity] then return end
+
+	local gradient = object:FindFirstChild("UIGradient")
+	if gradient then
+		gradient.Color = RARITY_COLORS[rarity]
+	end
+end
+
+
+-- [ Create Templates ]
+function ShopUI:SingleTemplate_CREATE(itemType, itemData)
+	local clone = self.singleTemplate:Clone()
+	clone.Visible = true
+
+	if itemType == "Item" then
+		clone.Parent = self.itemFrame
+	elseif itemType == "Pet" then
+		clone.Parent = self.petFrame
+	elseif itemType == "Trail" then
+		clone.Parent = self.trailFrame
+	end
+
+	local button = clone.ImageButton
+	local textLabel = button.TextLabel
+	local imageLabel = button.ImageLabel
+	local priceLabel = button.PriceFrame.TextLabel
+	local RarityValue = button.RarityValue
+
+	textLabel.Text = itemData.Name
+	priceLabel.Text = itemData.Price
+	imageLabel.Image = `rbxassetid://{itemData.Image}`
+	RarityValue.Value = itemData.Rarity or "Common"
+	
+	SharedState.textGradients.ApplyRarityGradient(textLabel, RarityValue.Value)
+	ButtonActions.ShopPurchaseHandler(button, itemData.Id, itemType, itemData.Price)
+	
+end
+
+function ShopUI:LockedTemplate_CREATE(itemType, itemData)
+	local clone = self.lockedTemplate:Clone()
+	clone.Visible = true
+
+	if itemType == "Item" then
+		clone.Parent = self.itemFrame
+	elseif itemType == "Pet" then
+		clone.Parent = self.petFrame
+	elseif itemType == "Trail" then
+		clone.Parent = self.trailFrame
+	end
+
+	local button = clone.ImageButton
+	local imageLabel = button.Item
+	local requirementLabel = button.RequirementLabel
+	local rarityValue = button.RarityValue
+
+	requirementLabel.Text = itemData.Requirement
+	imageLabel.Image = `rbxassetid://{itemData.Image}`
+	rarityValue.Value = itemData.Rarity or "Common"
+	self:ApplyRarityGradient(requirementLabel, rarityValue.Value)
+end
+
+function ShopUI:SingleGamepass_CREATE(gamepass)
+	local clone = self.topGamepass:Clone()
+	clone.Visible = true
+	clone.Parent = self.gamepassFrame
+
+	local button = clone.ImageButton
+	local itemLabel = clone.ItemLabel
+	local imageLabel = clone.ImageLabel
+	local descriptionLabel = clone.DescriptionLabel
+	local priceLabel = clone.Robux.Frame.TextLabel
+
+	itemLabel.Text = gamepass.Name
+	imageLabel.Image = `rbxassetid://{gamepass.Image}`
+	descriptionLabel.Text = gamepass.Description
+	priceLabel.Text = `{utf8.char(0xE002)}{gamepass.Price}`
+	self:ApplyRarityGradient(itemLabel, "Legendary")
+end
+
+function ShopUI:DoubleGamepass_CREATE(gamepass)
+	local clone = self.listGamepass.Template:Clone()
+	clone.Visible = true
+	clone.Parent = self.listGamepass
+
+	local itemLabel = clone.TextLabel
+	local imageLabel = clone.ImageLabel
+	local priceLabel = clone.Robux.Frame.TextLabel
+
+	itemLabel.Text = gamepass.Name
+	imageLabel.Image = `rbxassetid://{gamepass.Image}`
+	priceLabel.Text = `{utf8.char(0xE002)}{gamepass.Price}`
+	self:ApplyRarityGradient(itemLabel, "Common")
+end
+
+-- [ Main Functions ]
+function ShopUI:MarkPurchasedItems()
+	for _, frame in ipairs({self.itemFrame, self.petFrame, self.trailFrame}) do
+		for _, item in ipairs(frame:GetChildren()) do
+			if item:IsA("Frame") then
+				local button = item.ImageButton
+				local itemName = button and button.TextLabel and button.TextLabel.Text
+
+				if itemName then
+					local isPurchased = false
+					for category in pairs(CATEGORY_MAP) do
+						for _, id in ipairs(self.playerInventory[category] or {}) do
+							local data = self:GetItemData(id)
+							if data and data.Name == itemName then
+								isPurchased = true
+								break
+							end
+						end
+						if isPurchased then break end
+					end
+
+					button.AutoButtonColor = not isPurchased
+					button.BackgroundColor3 = isPurchased and Color3.fromRGB(100, 100, 100) or Color3.new(1, 1, 1)
+				end
+			end
+		end
+	end
+end
+
+function ShopUI:CreateItemsFromData()
+	for category, items in pairs(ItemsData) do
+		local mappedCategory = CATEGORY_MAP[category]
+		if mappedCategory then
+			for _, item in ipairs(items) do
+				if not item.Locked then
+					self:SingleTemplate_CREATE(mappedCategory, item)
+				else
+					self:LockedTemplate_CREATE(mappedCategory, item)
+				end
+			end
+		end
+	end
+end
+
+function ShopUI:CreateGamepassesFromData()
+	for _, gamepass in ipairs(GamepassData) do
+		if gamepass.IsFeatured then
+			self:SingleGamepass_CREATE(gamepass)
+		else
+			self:DoubleGamepass_CREATE(gamepass)
+		end
+	end
+end
+
+function ShopUI:Start()
+	self:CreateItemsFromData()
+
+	if GamepassData then
+		self:CreateGamepassesFromData()
+	else
+		self:SingleGamepass_CREATE({
+			Name = "V.I.P", 
+			Price = 250, 
+			Image = 17409640887, 
+			Description = "- 2x EXP\n- VIP Perks"
+		})
+		self:DoubleGamepass_CREATE({
+			Name = "Limited Trail", 
+			Price = 500, 
+			Image = 120808178966425
+		})
+	end
+
+	self.ACTIVE_COLOR = Color3.fromRGB(255, 191, 0)
+	self.GAMEPASS_COLOR = Color3.fromRGB(64, 191, 93)
+
+	self.CATEGORIES = {
+		Items = {
+			Button = SharedState.shopFrame.ShopCategory.Items.ImageButton,
+			Frame = self.itemFrame
+		},
+		Gamepass = {
+			Button = SharedState.shopFrame.ShopCategory.Gamepass.ImageButton,
+			Frame = self.gamepassFrame
+		},
+		Pets = {
+			Button = SharedState.shopFrame.ShopCategory.Pets.ImageButton,
+			Frame = self.petFrame
+		},
+		Trails = {
+			Button = SharedState.shopFrame.ShopCategory.Trails.ImageButton,
+			Frame = self.trailFrame
+		}
+	}
+	function ShopUI:SetActiveCategory(category)
+		for name, data in pairs(self.CATEGORIES) do
+			data.Frame.Visible = (name == category)
+		end
+
+		for name, data in pairs(self.CATEGORIES) do
+			local pressed = (name == category)
+			local pressedColor = (name == "Gamepass") and self.GAMEPASS_COLOR or self.ACTIVE_COLOR
+
+			if pressed then
+				GUIanim.SetToggled(data.Button, true, pressedColor)
+			else
+				GUIanim.SetToggled(data.Button, false)
+			end
+		end
+	end
+	for category, data in pairs(self.CATEGORIES) do
+		local pressedColor = (category == "Gamepass") and self.GAMEPASS_COLOR or self.ACTIVE_COLOR
+		GUIanim.ToggleHoverSize(data.Button, 1.05, 1, 0.2, 0.3, pressedColor, "ShopCategory")
+
+		data.Button.MouseButton1Click:Connect(function()
+			SharedState.ClickUI:Play()
+			self:SetActiveCategory(category)
+		end)
+	end
+
+	-- Initialize with default category
+	self:SetActiveCategory("Items")
+	self:SetInventory(EventHandler:FireServer("RequestInventory"))
+end
+
+return ShopUI
+```
+```InventoryUI
+local InventoryModule = {}
+-- [Services]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+
+-- [Modules]
+local SharedState = require(script.Parent.SharedState)
+local EventHandler = require(ReplicatedStorage.Modules.NetworkManager.EventHandler).new("Client")
+local ItemsData = require(game.ReplicatedStorage.Modules.DataTables.ItemsData)
+local GUIanim = require(ReplicatedStorage.Modules.Utility.GUIanim)
+local ButtonActions = require(ReplicatedStorage.Modules.UI.SharedState.ButtonActions)
+
+-- [Constants]
+local RARITY_COLORS = {
+	Common = SharedState.textGradients.Common,
+	Uncommon = SharedState.textGradients.Uncommon,
+	Rare = SharedState.textGradients.Rare,
+	Legendary = SharedState.textGradients.Legendary,
+	Exotic = SharedState.textGradients.Exotic
+}
+
+
+-----------------------------
+function InventoryModule:Init()
+	self.InventoryFrame = SharedState.InventoryFrame.Main
+	self.itemFrame = self.InventoryFrame:WaitForChild("Items")
+	self.petFrame = self.InventoryFrame:WaitForChild("Pets")
+	self.trailFrame = self.InventoryFrame:WaitForChild("Trails")
+	self.templatesFrame = self.InventoryFrame:WaitForChild("TemplatesFrame")
+	self.template = self.templatesFrame:WaitForChild("Template")
+
+	self:SetInventory({Items = {}, Pets = {}, Trails = {}})
+
+	task.spawn(function()
+		local inventory = EventHandler:FireServer("RequestInventory")
+		self:SetInventory(inventory or {})
+	end)
+	
+end
+
+-- [Load Inventory]
+function InventoryModule:SetInventory(inventory)
+	self.playerInventory = inventory
+	self.equippedItems = inventory.Equipped or {
+		Item = "",
+		Pet = "",
+		Trail = ""
+	}
+
+	-- Update ButtonActions with equipped items
+	ButtonActions.InventoryUpdateEquip(self.equippedItems)
+	self:LoadInventory()
+end
+
+function InventoryModule:ApplyRarityGradient(object, rarity)
+	if not RARITY_COLORS[rarity] then return end
+	local gradient = object:FindFirstChild("UIGradient")
+	if gradient then
+		gradient.Color = RARITY_COLORS[rarity]
+	end
+end
+
+function InventoryModule:GetItemData(itemId)
+	for _, categoryItems in pairs(ItemsData) do
+		if type(categoryItems) == "table" then
+			for _, item in ipairs(categoryItems) do
+				if item.Id == itemId then
+					return item
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- [ Create Template ]
+function InventoryModule:CreateInventoryItem(itemType, itemData)    
+	--if not self.InventoryFrame then
+	--	warn("InventoryFrame is nil!")
+	--	return
+	--end
+	--if not self.InventoryFrame.TemplatesFrame then
+	--	warn("TemplatesFrame is missing from InventoryFrame!")
+	--	return
+	--end
+	--local template = self.InventoryFrame.TemplatesFrame.Template
+	--if not template then
+	--	warn("Template is missing from TemplatesFrame!")
+	--	return
+	--end
+	local template = self.InventoryFrame.TemplatesFrame.Template
+	if not template then return end
+	
+	
+	
+	local clone = template:Clone()
+	clone.Visible = true
+
+	if itemType == "Item" then
+		clone.Parent = self.itemFrame
+	elseif itemType == "Pet" then
+		clone.Parent = self.petFrame
+	elseif itemType == "Trail" then
+		clone.Parent = self.trailFrame
+	end
+
+	local button = clone.ImageButton
+	local textLabel = button.TextLabel
+	local imageLabel = button.ImageLabel
+	button.Position = UDim2.new(0.5, 0, 0.5, 0)
+	button.PriceFrame:Destroy()
+	textLabel.Text = itemData.Name
+	imageLabel.Image = `rbxassetid://{itemData.Image}`
+	
+	-- Set equipped state
+	if self.equippedItems[itemType] == itemData.Id then
+		button.Image = SharedState.EQUIPPED_IMAGE
+		ButtonActions.equippedButtons[itemType] = button
+	else
+		button.Image = SharedState.NORMAL_IMAGE
+	end
+	
+	self:ApplyRarityGradient(textLabel, itemData.Rarity)
+	ButtonActions.SetupEquipInventory(button, itemData, itemType)
+	
+end
+
+-- [ Main Functions ]
+function InventoryModule:ClearInventoryFrames()
+	for _, frame in ipairs({self.itemFrame, self.petFrame, self.trailFrame}) do
+		for _, child in ipairs(frame:GetChildren()) do
+			if child:IsA("Frame") then
+				child:Destroy()
+			end
+		end
+	end
+end
+
+function InventoryModule:LoadInventory()
+	self:ClearInventoryFrames()
+
+	for _, id in ipairs(self.playerInventory.Items or {}) do
+		local itemData = self:GetItemData(id)
+		if itemData then
+			self:CreateInventoryItem("Item", itemData)
+		end
+	end
+
+	for _, id in ipairs(self.playerInventory.Pets or {}) do
+		local petData = self:GetItemData(id)
+		if petData then
+			self:CreateInventoryItem("Pet", petData)
+		end
+	end
+
+	for _, id in ipairs(self.playerInventory.Trails or {}) do
+		local trailData = self:GetItemData(id)
+		if trailData then
+			self:CreateInventoryItem("Trail", trailData)
+		end
+	end
+end
+
+function InventoryModule:Start()
+	self.ACTIVE_COLOR = Color3.fromRGB(255, 191, 0)
+	self.GAMEPASS_COLOR = Color3.fromRGB(64, 191, 93)
+
+	self.CATEGORIES = {
+		Items = {
+			Button = SharedState.InventoryFrame.ShopCategory.Items.ImageButton,
+			Frame = self.itemFrame
+		},
+		Pets = {
+			Button = SharedState.InventoryFrame.ShopCategory.Pets.ImageButton,
+			Frame = self.petFrame
+		},
+		Trails = {
+			Button = SharedState.InventoryFrame.ShopCategory.Trails.ImageButton,
+			Frame = self.trailFrame
+		}
+	}
+	function InventoryModule:SetActiveCategory(category)
+		for name, data in pairs(self.CATEGORIES) do
+			data.Frame.Visible = (name == category)
+		end
+
+		for name, data in pairs(self.CATEGORIES) do
+			local pressed = (name == category)
+			if pressed then
+				GUIanim.SetToggled(data.Button, true, self.ACTIVE_COLOR)
+			else
+				GUIanim.SetToggled(data.Button, false)
+			end
+		end
+	end
+	for category, data in pairs(self.CATEGORIES) do
+		GUIanim.ToggleHoverSize(data.Button, 1.05, 1, 0.2, 0.3, self.ACTIVE_COLOR, "InventoryCategory")
+
+		data.Button.MouseButton1Click:Connect(function()
+			SharedState.ClickUI:Play()
+			self:SetActiveCategory(category)
+		end)
+	end
+
+	-- Initialize with default category
+	self:SetActiveCategory("Items")
+end
+
+return InventoryModule
+```
+```ButtonActions
+local ButtonActions = {}
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+-- Client --
+local TweenService = game:GetService("TweenService")
+
+-- [Modules]
+local SharedState = require(ReplicatedStorage.Modules.UI.SharedState)
+local ItemsData = require(ReplicatedStorage.Modules.DataTables.ItemsData)
+local GamepassData = require(ReplicatedStorage.Modules.DataTables.GamepassData)
+local EventHandler = SharedState.EventHandler
+local GUIanim = SharedState.GUIanim
+local TextGradients = SharedState.textGradients
+
+-- [ UI Related ]
+local buyFrame = SharedState.BuyFrame
+-- [ Private Variables ]
+local currentItem = nil
+-- EQUIPPED IMAGE
+local EQUIPPED_IMAGE = "rbxassetid://104984361325727"
+local NORMAL_IMAGE = "rbxassetid://77689879347020"
+local equippedItems = { Item = "", Pet = "", Trail = "" }
+local equippedButtons = {}
+
+
+local function getItemDataById(itemId)
+	for _, category in pairs(ItemsData) do
+		if type(category) == "table" then
+			for _, item in ipairs(category) do
+				if item.Id == itemId then
+					return item end end end end
+	return nil
+end
+
+-- [ Shop ]
+function ButtonActions.ShopPurchaseHandler(button, itemId, itemType, price)
+	local Main = buyFrame.Main
+	local BuySlots = Main.BuySlots
+	local ItemLabel = Main.ItemLabel
+	local cashLabel = BuySlots.Cash.ImageButton.Frame.TextLabel
+	local robuxLabel = BuySlots.Robux.ImageButton.Frame.TextLabel
+	local imageLabel = Main.ImageLabel
+	local DescriptionLabel = Main.DescriptionLabel
+	local RarityLabel = Main.RarityLabel
+	local exitBtn = Main.Exit
+	local item = getItemDataById(itemId)
+
+	GUIanim.ToggleHoverSize(button, 1.05, 0.9, 0.2, 0.3)
+	button.MouseButton1Click:Connect(function()
+		if not item then return end
+		buyFrame.Visible = true
+		SharedState.GUIanim.AppearanceWipe(Main, .2, 40)
+		currentItem = { id = itemId, type = itemType, price = price, robuxPrice = item.RobuxPrice or 0}
+		ItemLabel.Text = item.Name
+		cashLabel.Text = item.Price
+		robuxLabel.Text = `{utf8.char(0xE002)}{item.RobuxPrice}`
+		imageLabel.Image = `rbxassetid://{item.Image}`
+		DescriptionLabel.Text = item.Description
+		RarityLabel.Text = item.Rarity
+		SharedState.textGradients.ApplyRarityGradient(RarityLabel, item.Rarity)
+		SharedState.textGradients.ApplyRarityGradient(Main.UIStroke, item.Rarity)
+		GUIanim.ToggleHoverSize(BuySlots.Cash.ImageButton, 1.05, 0.9, 0.2, 0.3)
+		
+		-- [ Cash Buy Handler ]
+		BuySlots.Cash.ImageButton.MouseButton1Click:Connect(function()
+			if currentItem then
+				SharedState.WipeCloseUI(Main)
+				buyFrame.Visible = false
+				EventHandler:FireServer("PurchaseItem", currentItem.id, currentItem.type, currentItem.price)
+				currentItem = nil
+			end
+		end)
+		GUIanim.ToggleHoverSize(BuySlots.Robux.ImageButton, 1.05, 0.9, 0.2, 0.3)
+		-- [ Robux Buy Handler ]
+		BuySlots.Robux.ImageButton.MouseButton1Click:Connect(function()
+			if currentItem then
+				warn(`Attemping to buy {currentItem.robuxPrice}`)
+				buyFrame.Visible = false
+				currentItem = nil
+			end
+		end)
+		
+
+		GUIanim.ToggleHoverSize(exitBtn, 1.05, 0.9, 0.2, 0.3)
+		exitBtn.MouseButton1Click:Connect(function()
+			SharedState.WipeCloseUI(Main)
+			buyFrame.Visible = false
+		end)
+	end)
+end
+
+-- [ Inventory ]
+function ButtonActions.InventoryUpdateEquip(equippedData)
+	equippedItems = equippedData or {
+		Item = "",
+		Pet = "",
+		Trail = ""
+	}
+
+	-- Reset all equipped buttons to normal image
+	for _, button in pairs(equippedButtons) do
+		if button and button.Parent then
+			button.Image = NORMAL_IMAGE
+		end
+	end
+
+	-- Clear the table
+	ButtonActions.equippedButtons = {}
+end
+function ButtonActions.SetupEquipInventory(button, itemData, itemType)
+	GUIanim.ToggleHoverSize(button, 1.05, 0.9, 0.2, 0.3)
+
+	-- Set initial state
+	if equippedItems[itemType] == itemData.Id then
+		button.Image = EQUIPPED_IMAGE
+		equippedButtons[itemType] = button
+	else
+		button.Image = NORMAL_IMAGE
+	end
+
+	button.MouseButton1Click:Connect(function()
+		local currentEquipped = equippedItems[itemType]
+		local currentButton = equippedButtons[itemType]
+
+		if currentEquipped == itemData.Id then
+			-- Unequip if clicking the same item
+			EventHandler:InvokeServer("UnequipItem", itemType)
+			print("Unequipping Item")
+			button.Image = NORMAL_IMAGE
+			equippedItems[itemType] = ""
+			equippedButtons[itemType] = nil
+		else
+			-- Equip new item
+			EventHandler:InvokeServer("EquipItem", itemType, itemData)
+			print("Equipping new item")
+			-- Unequip previous item of same type
+			if currentButton then
+				currentButton.Image = NORMAL_IMAGE
+			end
+
+			-- Set new equipped item
+			button.Image = EQUIPPED_IMAGE
+			equippedItems[itemType] = itemData.Id
+			equippedButtons[itemType] = button
+		end
+
+		SharedState.ClickUI:Play()
+	end)
+end
+
+-- [ Settings ]
+local ColorPickerModule = require(ReplicatedStorage.Modules.Utility.ColorPicker)
+function ButtonActions.SetupColorVFX()
+	local ColorPicker = SharedState.SettingsFrame:WaitForChild("ColorPicker")
+	ColorPicker.Visible = false
+
+	-- Initialize ColorPicker module
+	local picker = ColorPickerModule.Init(ColorPicker)
+
+	SharedState.GUIanim.ToggleHoverSize(ColorPicker.Exit, 1.05, 0.9, 0.2, 0.3)
+	ColorPicker.Exit.MouseButton1Click:Connect(function()
+		ColorPicker.Visible = false
+	end)
+
+	ColorPicker.Confirm.MouseButton1Click:Connect(function()
+		local colorHex = picker.GetCurrentColor() -- Get selected color
+		EventHandler:FireServer("UpdateSetting", "VFXcolor", colorHex)
+		ColorPicker.Visible = false
+	end)
+end
+
+return ButtonActions
+
+```
+```ItemsData
+-- ItemsData.lua (updated)
+local ItemsData = {
+	Items = {
+		{
+			Id = "Sword1",
+			Name = "Starter Sword",
+			Price = 100,
+			RobuxPrice = 50,
+			Type = "Item",
+			Rarity = "Common",  -- Added rarity
+			Description = "A basic sword for beginners.",
+			Image = 120808178966425,
+		},
+		{
+			Id = "DragonSword",
+			Name = "Dragon Sword",
+			Price = 500,
+			RobuxPrice = 50,
+			Type = "Item",
+			Rarity = "Legendary",  -- Added rarity
+			Description = "Legendary dragon-powered sword.",
+			Image = 120808178966425,
+		}
+	},
+
+	Pets = {
+		{
+			Id = "PetDog",
+			Name = "Dog",
+			Price = 250,
+			RobuxPrice = 50,
+			Type = "Pet",
+			Description = "A loyal companion.",
+			Image = 120808178966425,
+			Rarity = "Uncommon",
+			Locked = false
+		},
+	},
+
+	Trails = {
+		{
+			Id = "TrailFire",
+			Name = "Fire Trail",
+			Price = 300,
+			RobuxPrice = 50,
+			Type = "Trail",
+			Description = "Leave a fiery path.",
+			Image = 120808178966425,
+			Rarity = "Rare",
+			Locked = false
+		},
+	},
+
+	LockedTemplate = {
+		Items = {
+			{
+				Id = "DragonSword",
+				Name = "Dragon Sword",
+				Requirement = "Level 50",
+				Type = "Item",
+				Description = "Legendary dragon-powered sword.",
+				Image = 120808178966425,
+				Rarity = "Common",
+				Locked = true
+			}
+		},
+		Trails = {
+			{
+				Id = "VIP_Trail",
+				Name = "VIP Trail",
+				Requirement = "VIP Gamepass",
+				Type = "Trail",
+				Description = "Exclusive VIP trail effect.",
+				Image = 120808178966425,
+				Rarity = "Exotic",
+				Locked = true
+			}
+		}
+	}
+}
+
+return ItemsData
+```
+```DataManager
+-- [Services]
+local ServerStorage = game:GetService("ServerStorage")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local DatastoreService = game:GetService("DataStoreService")
+local TeleportService = game:GetService("TeleportService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local HttpService = game:GetService('HttpService')
+local EventHandler = require(ReplicatedStorage.Modules.NetworkManager.EventHandler).new("Server")
+-- [Data Tables]
+
+local ProfileService = require(script.ProfileStore)
+
+-- [Player Data Template]
+local ProfileTemplate = {
+	ClientData = {
+		Cash = 5000,
+		Gems = 0,
+		Levels = 0,
+		EXP = 0,
+		LastLogin = 0,
+		LoginStreak = 0,
+		DailyRewardClaimed = false,
+		CodesRedeemed = {},
+	};
+	
+	Inventory = {
+		Equipped = { Item = "", Pet = "", Trail = "" };
+		Items = {},
+		Pets = {},
+		Trails = {},
+		ChestsOpened = 0,
+	},
+
+	SettingsData = {
+		VFXcolor = "Default",
+		MusicEnabled = false,  -- Default to enabled
+		DeathSFXMuted = false,
+		LowGraphics = false,
+		HideGUI = false
+	};
+
+	StatsData = {
+		Wins = 0,
+		Deaths = 0,
+		TimesPlayed = 0,
+		WinRate = 0.0,
+		Achievements = {},
+	};
+
+	Gamepasses = {};
+	
+	ServerData = {
+		Banned = false,
+		Strikes = 0,
+	};
+
+}
+
+local ProfileStore = ProfileService.GetProfileStore("PlayerData", ProfileTemplate)
+local DataManager = {}
+local Profiles = {} -- [player] = profile
+
+
+-- [Player Data Functions]
+function DataManager.GetProfile(player)
+	return Profiles[player]
+end
+
+function DataManager.ClearProfile(player)
+	local profile = Profiles[player]
+	if profile then
+		profile:Release()
+		Profiles[player] = nil
+		return true
+	end
+	return false
+end
+
+function DataManager.WipeData(player : Player)
+	ProfileStore:WipeProfileAsync("Player_" .. player.UserId)
+end
+
+function DataManager.ApplyAttributes(player, data)
+	for key, value in pairs(data) do
+		if typeof(value) == "number" or typeof(value) == "string" or typeof(value) == "boolean" then
+			player:SetAttribute(key, value)
+		end
+	end
+end
+
+-- [Currency Management]
+function DataManager.AddCash(player, amount)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		profile.Data.ClientData.Cash = (profile.Data.ClientData.Cash or 0) + amount
+		player:SetAttribute("Cash", profile.Data.ClientData.Cash)
+		return true
+	end
+	return false
+end
+
+function DataManager.RemoveCash(player, amount)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		profile.Data.ClientData.Cash = (profile.Data.ClientData.Cash or 0) - amount
+		player:SetAttribute("Cash", profile.Data.ClientData.Cash)
+		print(`\n{amount} Removed, \nNew Amount: {profile.Data.ClientData.Cash}`)
+		return true
+	end
+	return false
+end
+
+-- [Progression System]
+function DataManager.AddEXP(player, amount)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		profile.Data.ClientData.EXP = (profile.Data.ClientData.EXP or 0) + amount
+		player:SetAttribute("EXP", profile.Data.ClientData.EXP)
+		return true
+	end
+	return false
+end
+
+function DataManager.SetLevel(player, level)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		profile.Data.ClientData.Level = level
+		player:SetAttribute("Level", level)
+		return true
+	end
+	return false
+end
+
+-- [Stats Tracking]
+function DataManager.AddWin(player)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		profile.Data.StatsData.Wins += 1
+		player:SetAttribute("Wins", profile.Data.StatsData.Wins)
+
+		local streak = (player:GetAttribute("WinStreak") or 0) + 1
+		player:SetAttribute("WinStreak", streak)
+		return true
+	end
+	return false
+end
+
+function DataManager.ResetStreak(player)
+	player:SetAttribute("WinStreak", 0)
+	return true
+end
+
+-- [Inventory System]
+function DataManager.AddItemToInventory(player, itemId, itemType)
+	local profile = Profiles[player]
+	if not profile then return false end
+
+	local inventoryType
+	if itemType == "Item" then
+		inventoryType = "Items"
+	elseif itemType == "Pet" then
+		inventoryType = "Pets"
+	elseif itemType == "Trail" then
+		inventoryType = "Trails"
+	else
+		return false
+	end
+
+	for _, existingId in ipairs(profile.Data.Inventory[inventoryType] or {}) do
+		if existingId == itemId then
+			return false, "Already owned"
+		end
+	end
+
+	table.insert(profile.Data.Inventory[inventoryType], itemId)
+	return true
+end
+
+function DataManager.GetPlayerInventory(player)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		return {
+			Items = profile.Data.Inventory.Items or {},
+			Pets = profile.Data.Inventory.Pets or {},
+			Trails = profile.Data.Inventory.Trails or {},
+			Equipped = profile.Data.Inventory.Equipped or { Item = "", Pet = "", Trail = "" },
+		}
+	end
+	return {
+		Items = {}, 
+		Pets = {}, 
+		Trails = {} ,
+		Equipped = { Item = "", Pet = "", Trail = "" }
+	}
+end
+
+function DataManager.EquipItem(player, itemType, itemId)
+	local profile = Profiles[player]
+	if not profile then return false end
+
+	-- Create equipped data if not exists
+	if not profile.Data.Equipped then
+		profile.Data.Equipped = {
+			Item = "",
+			Pet = "",
+			Trail = ""
+		}
+	end
+
+	-- Set equipped item
+	profile.Data.Equipped[itemType] = itemId
+
+	-- Update client
+	DataManager.UpdatePlayerInventory(player)
+	return true
+end
+
+-- [Shop System]
+function DataManager.UnequipItem(player, itemType)
+	local profile = Profiles[player]
+	if not profile then return false end
+
+	if profile.Data.Equipped then
+		profile.Data.Equipped[itemType] = ""
+	end
+
+	-- Update client
+	DataManager.UpdatePlayerInventory(player)
+	return true
+end
+
+function DataManager.UpdatePlayerInventory(player)
+	local inventory = DataManager.GetPlayerInventory(player)
+	EventHandler:FireClient(player, "UpdateInventory", inventory)
+end
+
+function DataManager.PurchaseItemValidate(player, itemId, itemType, price)
+	local profile = Profiles[player]
+	if not profile then 
+		return false, "Profile not loaded" 
+	end
+
+	for _, existingId in ipairs(profile.Data.Inventory[itemType] or {}) do
+		if existingId == itemId then
+			return false, "Already owned"
+		end
+	end
+
+	if type(price) ~= "number" or price <= 0 then
+		return false, "Invalid price"
+	end
+
+	local currentCash = profile.Data.ClientData.Cash or 0
+	if currentCash < price then
+		return false, "Not enough cash"
+	end
+
+	local added, reason = DataManager.AddItemToInventory(player, itemId, itemType)
+	if not added then
+		return false, reason or "Inventory error"
+	end
+
+	return true
+end
+
+-- [Settings System]
+function DataManager.GetPlayerSettings(player)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		return {
+			MusicEnabled    = profile.Data.SettingsData.MusicEnabled,
+			DeathSFXMuted   = profile.Data.SettingsData.DeathSFXMuted,
+			LowGraphics     = profile.Data.SettingsData.LowGraphics,
+			HideGUI         = profile.Data.SettingsData.HideGUI,
+			VFXcolor        = profile.Data.SettingsData.VFXcolor,
+		}
+	end
+end
+
+function DataManager.UpdateSettingsClient(player)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		local Settings = DataManager.GetPlayerSettings(player)
+		EventHandler:FireClient(player, "UpdateSettingsClient", Settings)
+	end
+end
+
+-- [Code Redemption System]
+function DataManager.HasRedeemedCode(player, code)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		local redeemedCodes = profile.Data.ClientData.CodesRedeemed or {}
+		return table.find(redeemedCodes, code) ~= nil
+	end
+	return false
+end
+
+function DataManager.MarkCodeRedeemed(player, code)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		profile.Data.ClientData.CodesRedeemed = profile.Data.ClientData.CodesRedeemed or {}
+		table.insert(profile.Data.ClientData.CodesRedeemed, code)
+		return true
+	end
+	return false
+end
+
+function DataManager.RedeemCodeReward(player, code)
+	-- This will be implemented in CodesData
+	return false, "Code not implemented"
+end
+--
+
+function DataManager:RequestProfileMetaTags(Player)
+	local profile = Profiles[Player]
+	if profile then
+		return profile.MetaData.MetaTags
+	end
+end
+
+function DataManager.WaitForProfile(player)
+	if player:GetAttribute("PlayerLoaded", true) then
+		return true
+	end
+	return false
+end
+
+-- [Loads Data when joining]
+function DataManager:LoadProfile(player: Player)
+	player:SetAttribute("PlayerLoaded", false)
+	
+	--DataManager.WipeData(player)
+	--warn("Profile Wiped")	
+	--wait(2)
+	local profile = ProfileStore:LoadProfileAsync("Player_" .. player.UserId)
+	if profile ~= nil then
+		profile:AddUserId(player.UserId)
+		profile:Reconcile()
+		profile:ListenToRelease(function()
+			Profiles[player] = nil
+			player:Kick()
+		end)
+
+		if player:IsDescendantOf(Players) then
+			Profiles[player] = profile
+			warn("Profile Loaded")
+			player:SetAttribute("PlayerLoaded", true)
+			return true
+		else
+			profile:Release()
+		end
+	else
+		player:Kick()
+	end
+	return false
+end
+
+-- [Releases Data when Leaving]
+function DataManager:PlayerRemoving(player)
+	local profile = Profiles[player]
+	if profile then
+		profile:Release()
+	end
+end
+
+
+
+return DataManager
+```
+```ServerManager
+local ServerHandler = {}
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+local DataManager = require(ServerStorage.Modules.Managers.DataManager)
+local EventHandler = require(ReplicatedStorage.Modules.NetworkManager.EventHandler).new("Server")
+local CodesData = require(ServerStorage.Modules.DataTables.CodesData)
+
+function ServerHandler:Init()
+	local Handlers = {
+		
+		-- [UI Related]
+		[`PurchaseItem`] = function(player, itemId, itemType, price)
+			price = tonumber(price) or 0
+			local Success, Error = DataManager.PurchaseItemValidate(player, itemId, itemType, price)
+
+			if Success then
+				DataManager.RemoveCash(player, price)
+				DataManager.UpdatePlayerInventory(player)
+				return true 
+			else 
+				warn("Purchase failed:", Error)
+			end
+			return false, Error
+		end,
+		[`RequestInventory`] = function(player)
+			local inventory = DataManager.GetPlayerInventory(player)
+			return inventory
+		end,
+		[`EquipItem`] = function(player, itemType, itemData)
+			local profile = DataManager.GetProfile(player)
+			if not profile then return false end
+
+			profile.Data.Inventory.Equipped[itemType] = itemData.Id
+		end,
+		[`UnequipItem`] = function(player, itemType)
+			local profile = DataManager.GetProfile(player)
+			if not profile then return false end
+
+			if profile.Data.Inventory.Equipped then
+				profile.Data.Inventory.Equipped[itemType] = nil
+			end
+		end,
+		["RequestSettings"] = function(player)
+			local Settings = DataManager.GetPlayerSettings(player)
+			return Settings
+		end,
+
+		["UpdateSetting"] = function(player, settingName, value)
+			local profile = DataManager.GetProfile(player)
+			if profile and profile.Data.SettingsData[settingName] ~= nil then
+				print(`Settings Changed: {settingName} = {value}`)
+				profile.Data.SettingsData[settingName] = value
+				DataManager.UpdateSettingsClient(player)
+				return true
+			end
+			return false
+		end,
+		--=====================================================================--
+		[`RedeemCode`] = function(player, code)
+			local success, message = CodesData:RedeemCode(player, code)
+			print(message)
+			return success, message
+		end,
+		
+	}
+	local EventListener = require(ReplicatedStorage.Modules.NetworkManager.EventListener).new(Handlers, script.Name)
+end
+
+function ServerHandler:Start()
+end
+return ServerHandler
+```
+```PlayerManager
+local PlayerLoader = {}
+
+local Players = game:GetService("Players")
+local ServerStorage = game:GetService("ServerStorage")
+local PhysicsService = game:GetService("PhysicsService")
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local ContentProvider = game:GetService("ContentProvider")
+
+local DataManager = require(ServerStorage.Modules.Managers.DataManager)
+local EventHandler = require(ReplicatedStorage.Modules.NetworkManager.EventHandler).new("Client")
+
+function GiveInstance(player)
+	local InLobby = Instance.new("BoolValue")
+	InLobby.Name = "InLobby"
+	InLobby.Parent = player
+	InLobby.Value = true
+end
+
+function PlayerAdded(Player)
+	DataManager:LoadProfile(Player)	
+	repeat task.wait(1) until Player:GetAttribute("PlayerLoaded") == true
+	if DataManager.WaitForProfile(Player) then
+		--wait(1)
+		DataManager.UpdateSettingsClient(Player)
+		DataManager.UpdatePlayerInventory(Player)
+		GiveInstance(Player)
+	end 
+end
+
+function PlayerRemoved(Player)
+	DataManager:PlayerRemoving(Player)
+end
+
+function PlayerLoader:Init()
+	Players.PlayerAdded:Connect(PlayerAdded)
+	Players.PlayerRemoving:Connect(PlayerRemoved)
+	
+	for _, Player in ipairs(Players:GetPlayers()) do
+		PlayerAdded(Player)
+	end
+end
+
+function PlayerLoader:Start()
+end
+
+
+return PlayerLoader
+```

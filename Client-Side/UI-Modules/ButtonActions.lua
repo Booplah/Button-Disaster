@@ -149,6 +149,24 @@ function ButtonActions.SetupEquipInventory(button, itemData, itemType)
 end
 
 -- [ Settings ]
+local ColorPickerModule = require(ReplicatedStorage.Modules.Utility.ColorPicker)
+function ButtonActions.SetupColorVFX()
+	local ColorPicker = SharedState.SettingsFrame:WaitForChild("ColorPicker")
+	ColorPicker.Visible = false
 
+	-- Initialize ColorPicker module
+	local picker = ColorPickerModule.Init(ColorPicker)
+
+	SharedState.GUIanim.ToggleHoverSize(ColorPicker.Exit, 1.05, 0.9, 0.2, 0.3)
+	ColorPicker.Exit.MouseButton1Click:Connect(function()
+		ColorPicker.Visible = false
+	end)
+
+	ColorPicker.Confirm.MouseButton1Click:Connect(function()
+		local colorHex = picker.GetCurrentColor() -- Get selected color
+		EventHandler:FireServer("UpdateSetting", "VFXcolor", colorHex)
+		ColorPicker.Visible = false
+	end)
+end
 
 return ButtonActions

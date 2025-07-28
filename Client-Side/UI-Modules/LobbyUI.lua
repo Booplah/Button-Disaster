@@ -50,7 +50,9 @@ function LobbyUIModule:Init()
 			closeFunc = SharedState.WipeCloseUI,
 			exitButton = SharedState.CodesFrame.Main:WaitForChild("Exit"),
 			sound = true
-		}
+		},
+		
+		--
 
 	}
 	-- Close Frames First
@@ -83,6 +85,11 @@ function LobbyUIModule:Start()
 			end)
 		end
 	end
+	
+	
+	
+	
+	
 end
 
 return LobbyUIModule
