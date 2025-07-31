@@ -218,14 +218,14 @@ local function loadModule(module: ModuleScript)
 		-- This module needs to be run in parallel, so create new actor and script.
 		local newActorSystem = if isClient then actorForClient:Clone() else actorForServer:Clone()
 		local actorScript = newActorSystem:FindFirstChildWhichIsA("BaseScript")
-		
+
 		actorScript.Name = `Required{module.Name}`
 		newActorSystem.Parent = ACTOR_PARENT
-		
+
 		if not actorScript:GetAttribute("Loaded") then
 			actorScript:GetAttributeChangedSignal("Loaded"):Wait()
 		end
-		
+
 		newActorSystem:SendMessage("RequireModule", module)
 
 		if SETTINGS.VERBOSE_LOADING then
@@ -239,9 +239,9 @@ local function loadModule(module: ModuleScript)
 		local endTime = tick()
 
 		if SETTINGS.VERBOSE_LOADING and not actorScript:GetAttribute("Errored") then
-			newPrint(`>> Loaded PARALLEL module {module.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
+			newPrint(`Loaded PARALLEL module {module.Name}`, ("(%.3f seconds)"):format(endTime - startTime))
 		elseif actorScript:GetAttribute("Errored") then
-			newWarn(`>> Failed to load PARALLEL module {module.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
+			newWarn(`\nFailed to load PARALLEL module {module.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
 		end
 
 		trackerForActors.Load[module] = newActorSystem
@@ -251,9 +251,10 @@ local function loadModule(module: ModuleScript)
 		return
 	end
 
-	if SETTINGS.VERBOSE_LOADING then
-		newPrint(("Loading module '%s'"):format(module.Name))
-	end
+	--if SETTINGS.VERBOSE_LOADING then
+	--	newPrint(("Loading module '%s'"):format(module.Name))
+	--end
+	
 	local startTime = tick()
 	local success, result = pcall(function()
 		local loadedModule = require(module)
@@ -269,9 +270,9 @@ local function loadModule(module: ModuleScript)
 	local endTime = tick()
 
 	if SETTINGS.VERBOSE_LOADING and success then
-		newPrint(`>> Loaded module {module.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
+		newPrint(`Loaded - {module.Name}`, ("(%.3f seconds)"):format(endTime - startTime))
 	elseif not success then
-		newWarn(`>> Failed to load module {module.Name}`, ("(took %.3f seconds)\n%s"):format(endTime - startTime, result))
+		newWarn(`\nFailed Load: {module.Name}`, ("(%.3f seconds)\n%s"):format(endTime - startTime, result))
 	end
 end
 
@@ -291,9 +292,9 @@ local function initializeModule(loadedModule, module: ModuleScript)
 		local endTime = tick()
 
 		if SETTINGS.VERBOSE_LOADING and not actorScript:GetAttribute("Errored") then
-			newPrint(`>> Initialized PARALLEL module {actorScript.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
+			newPrint(`Initialized PARALLEL module {actorScript.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
 		elseif actorScript:GetAttribute("Errored") then
-			newWarn(`>> Failed to init PARALLEL module {actorScript.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
+			newWarn(`\nFailed to init PARALLEL module {actorScript.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
 		end
 		return
 	end
@@ -302,9 +303,9 @@ local function initializeModule(loadedModule, module: ModuleScript)
 		return
 	end
 
-	if SETTINGS.VERBOSE_LOADING then
-		newPrint(("Initializing module '%s'"):format(module.Name))
-	end
+	--if SETTINGS.VERBOSE_LOADING then
+	--	newPrint(("Initializing module '%s'"):format(module.Name))
+	--end
 	local thread = coroutine.running()
 	local startTime = tick()
 	local endTime
@@ -328,7 +329,7 @@ local function initializeModule(loadedModule, module: ModuleScript)
 				endTime = tick()
 			end
 			if SETTINGS.VERBOSE_LOADING then
-				newWarn(`>> Failed to init module {module.Name}`, ("(took %.3f seconds)\n%s"):format(endTime - startTime, ":Init() yielded for too long!"))
+				newWarn(`\nFailed to init module {module.Name}`, ("(took %.3f seconds)\n%s"):format(endTime - startTime, ":Init() yielded for too long!"))
 			end
 			task.spawn(thread)
 		end)
@@ -337,11 +338,11 @@ local function initializeModule(loadedModule, module: ModuleScript)
 			task.cancel(delayedThread)
 		end
 	end
-	
+
 	if SETTINGS.VERBOSE_LOADING and success then
-		newPrint(`>> Initialized module {module.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
+		newPrint(`Initialized - {module.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
 	elseif not success then
-		newWarn(`>> Failed to init module {module.Name}`, ("(took %.3f seconds)\n%s"):format(endTime - startTime, result))
+		newWarn(`\nFailed Initialize: {module.Name}`, ("(took %.3f seconds)\n%s"):format(endTime - startTime, result))
 	end
 end
 
@@ -350,9 +351,9 @@ local function startModule(loadedModule, module: ModuleScript)
 		local actorScript: BaseScript = trackerForActors.Load[module]:FindFirstChildWhichIsA("BaseScript") :: any
 		trackerForActors.Load[module]:SendMessage("StartModule")
 
-		if SETTINGS.VERBOSE_LOADING then
-			newPrint(("Starting PARALLEL module '%s'"):format(actorScript.Name))
-		end
+		--if SETTINGS.VERBOSE_LOADING then
+		--	newPrint(("Starting PARALLEL module '%s'"):format(actorScript.Name))
+		--end
 
 		local startTime = tick()
 		if not actorScript:GetAttribute("Started") then
@@ -361,9 +362,9 @@ local function startModule(loadedModule, module: ModuleScript)
 		local endTime = tick()
 
 		if SETTINGS.VERBOSE_LOADING and not actorScript:GetAttribute("Errored") then
-			newPrint(`>> Started PARALLEL module {actorScript.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
+			newPrint(`Started PARALLEL module {actorScript.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
 		elseif actorScript:GetAttribute("Errored") then
-			newWarn(`>> Failed to start PARALLEL module {actorScript.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
+			newWarn(`\nFailed to start PARALLEL module {actorScript.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
 		end
 		return
 	end
@@ -372,9 +373,9 @@ local function startModule(loadedModule, module: ModuleScript)
 		return
 	end
 
-	if SETTINGS.VERBOSE_LOADING then
-		newPrint(("Starting module '%s'"):format(module.Name))
-	end
+	--if SETTINGS.VERBOSE_LOADING then
+	--	newPrint(("Starting module '%s'"):format(module.Name))
+	--end
 
 	local thread = coroutine.running()
 	local startTime = tick()
@@ -399,7 +400,7 @@ local function startModule(loadedModule, module: ModuleScript)
 				endTime = tick()
 			end
 			if SETTINGS.VERBOSE_LOADING then
-				newWarn(`>> Failed to start module {module.Name}`, ("(took %.3f seconds)\n%s"):format(endTime - startTime, ":Start() yielded for too long!"))
+				newWarn(`\nFailed to start module {module.Name}`, ("(took %.3f seconds)\n%s"):format(endTime - startTime, ":Start() yielded for too long!"))
 			end
 			task.spawn(thread)
 		end)
@@ -410,9 +411,9 @@ local function startModule(loadedModule, module: ModuleScript)
 	end
 
 	if SETTINGS.VERBOSE_LOADING and success then
-		newPrint(`>> Started module {module.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
+		newPrint(`Started - {module.Name}`, ("(took %.3f seconds)"):format(endTime - startTime))
 	elseif not success then
-		newWarn(`>> Failed to start module {module.Name}`, ("(took %.3f seconds)\n%s"):format(endTime - startTime, result))
+		newWarn(`\nFailed to start module {module.Name}`, ("(took %.3f seconds)\n%s"):format(endTime - startTime, result))
 	end
 end
 
@@ -460,7 +461,7 @@ local function start(...: Instance)
 		for _, module in modules do
 			loadModule(module)
 		end
-		
+
 		newWarn("=== INITIALIZING MODULES ===")
 		for _, module in modules do
 			if not tracker.Load[module] then
